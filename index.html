@@ -1,0 +1,228 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Barbarian Attack — Sprite Animation</title>
+  <style>
+    :root{--bg:#111;--panel:#1b1b1b;--accent:#efc07a;color-scheme:dark}
+    html,body{height:100%;margin:0;font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,"Helvetica Neue",Arial}
+    body{display:flex;align-items:center;justify-content:center;background:linear-gradient(180deg,#0b0b0b 0%, #1a1a1a 100%);padding:24px}
+    .card{background:var(--panel);border-radius:12px;padding:18px;box-shadow:0 8px 30px rgba(0,0,0,.6);width:880px;max-width:calc(100% - 48px);color:#ddd}
+    header{display:flex;align-items:center;gap:12px;margin-bottom:12px}
+    h1{font-size:18px;margin:0}
+    p.lead{margin:4px 0 0 0;color:#aaa;font-size:13px}
+    .stage{display:flex;gap:18px}
+    canvas{background:linear-gradient(180deg,#2b241b, #2f2b29);image-rendering:pixelated;border-radius:6px}
+    .controls{display:flex;flex-direction:column;gap:8px;width:320px}
+    .row{display:flex;gap:8px;align-items:center}
+    label{font-size:13px;color:#cfcfcf;min-width:100px}
+    input[type=range]{flex:1}
+    button{background:var(--accent);border:none;padding:8px 12px;border-radius:8px;cursor:pointer}
+    .small{font-size:13px;color:#bbb}
+    footer{margin-top:12px;font-size:12px;color:#999}
+    .muted{color:#8f8f8f}
+  </style>
+</head>
+<body>
+  <div class="card">
+    <header>
+      <div>
+        <h1>Barbarian Attack — HTML + JS Sprite Animator</h1>
+        <p class="lead">Arrume seu sprite sheet no mesmo diretório e atualize <code>SPRITE_SHEET</code> no código se necessário.</p>
+      </div>
+    </header>
+
+    <div class="stage">
+      <canvas id="canvas" width="384" height="192"></canvas>
+
+      <div class="controls">
+        <div class="row">
+          <label>Frames por segundo</label>
+          <input id="fps" type="range" min="4" max="30" value="12">
+          <div class="small" id="fpsVal">12</div>
+        </div>
+
+        <div class="row">
+          <label>Escala</label>
+          <input id="scale" type="range" min="1" max="6" value="3">
+          <div class="small" id="scaleVal">3x</div>
+        </div>
+
+        <div class="row">
+          <label>Frame count</label>
+          <input id="frames" type="number" min="1" max="64" value="8">
+        </div>
+
+        <div class="row">
+          <label>Colunas</label>
+          <input id="cols" type="number" min="1" max="16" value="4">
+        </div>
+
+        <div class="row">
+          <label>Loop</label>
+          <button id="toggle">Pausar</button>
+        </div>
+
+        <div class="row">
+          <label>Direção</label>
+          <button id="flip">Virar Horizontal</button>
+        </div>
+
+        <div class="row small muted">
+          Aperte <strong>Space</strong> para pausar/resumir — <strong>← →</strong> para mudar frame.
+        </div>
+      </div>
+    </div>
+
+    <footer>
+      <div class="muted">Instruções rápidas: substitua a constante <code>SPRITE_SHEET</code> pelo nome do seu arquivo PNG (ex: <code>barbarian_spritesheet.png</code>) e abra este arquivo no navegador. O desenho usa <code>image-rendering: pixelated</code> para manter a aparência pixel art.</div>
+    </footer>
+  </div>
+
+  <script>
+    // --- CONFIG ---
+    // Troque esse caminho pelo nome real do seu sprite sheet
+    const SPRITE_SHEET = './barbarian_spritesheet.png.png';
+    const DEFAULT_FRAMES = 8;
+    const DEFAULT_COLS = 4;
+    // ---------------
+
+    const canvas = document.getElementById('canvas');
+    const ctx = canvas.getContext('2d');
+
+    const fpsEl = document.getElementById('fps');
+    const fpsVal = document.getElementById('fpsVal');
+    const scaleEl = document.getElementById('scale');
+    const scaleVal = document.getElementById('scaleVal');
+    const framesEl = document.getElementById('frames');
+    const colsEl = document.getElementById('cols');
+    const toggleBtn = document.getElementById('toggle');
+    const flipBtn = document.getElementById('flip');
+
+    let img = new Image();
+    img.src = SPRITE_SHEET;
+    img.onload = init;
+    img.onerror = ()=>{
+      ctx.clearRect(0,0,canvas.width,canvas.height);
+      ctx.fillStyle = '#ddd';
+      ctx.font = '14px monospace';
+      ctx.fillText('Erro ao carregar: ' + SPRITE_SHEET, 10, 30);
+      ctx.fillText('Coloque seu sprite sheet no mesmo diretório ou ajuste SPRITE_SHEET.', 10, 50);
+    }
+
+    let fps = Number(fpsEl.value);
+    let scale = Number(scaleEl.value);
+    let totalFrames = Number(framesEl.value);
+    let cols = Number(colsEl.value);
+    let rows = 1;
+    let currentFrame = 0;
+    let playing = true;
+    let flipped = false;
+
+    let frameWidth = 32, frameHeight = 32; // valores provisórios até carregar imagem
+
+    function init(){
+      // determina colunas / linhas / tamanho do frame com base na imagem
+      cols = Number(colsEl.value) || DEFAULT_COLS;
+      totalFrames = Number(framesEl.value) || DEFAULT_FRAMES;
+      rows = Math.ceil(totalFrames / cols);
+      frameWidth = Math.floor(img.width / cols);
+      frameHeight = Math.floor(img.height / rows);
+
+      // ajusta canvas para manter pixel art nítido
+      canvas.width = frameWidth * scale;
+      canvas.height = frameHeight * scale;
+      canvas.style.width = (frameWidth * scale) + 'px';
+      canvas.style.height = (frameHeight * scale) + 'px';
+      canvas.style.imageRendering = 'pixelated';
+
+      // atualiza display
+      fpsVal.textContent = fps;
+      scaleVal.textContent = scale + 'x';
+
+      lastTime = performance.now();
+      accumulator = 0;
+      requestAnimationFrame(mainLoop);
+    }
+
+    // --- animação baseada em tempo ---
+    let lastTime = 0;
+    let accumulator = 0;
+
+    function mainLoop(now){
+      requestAnimationFrame(mainLoop);
+      const dt = (now - lastTime) / 1000; // segundos
+      lastTime = now;
+      accumulator += dt;
+
+      const secondsPerFrame = 1 / fps;
+      if(accumulator >= secondsPerFrame){
+        // quantos frames avançar (suaviza se framerate variar)
+        const steps = Math.floor(accumulator / secondsPerFrame);
+        accumulator -= steps * secondsPerFrame;
+        if(playing){
+          currentFrame = (currentFrame + steps) % totalFrames;
+        }
+      }
+
+      draw();
+    }
+
+    function draw(){
+      // clear
+      ctx.clearRect(0,0,canvas.width,canvas.height);
+
+      // compute source rect
+      const sx = (currentFrame % cols) * frameWidth;
+      const sy = Math.floor(currentFrame / cols) * frameHeight;
+
+      // draw with optional horizontal flip
+      ctx.save();
+      if(flipped){
+        ctx.translate(canvas.width, 0);
+        ctx.scale(-1, 1);
+        // when flipped, drawing x should be negative width to fit
+        ctx.drawImage(img, sx, sy, frameWidth, frameHeight, 0, 0, frameWidth * scale, frameHeight * scale);
+      } else {
+        ctx.drawImage(img, sx, sy, frameWidth, frameHeight, 0, 0, frameWidth * scale, frameHeight * scale);
+      }
+      ctx.restore();
+    }
+
+    // --- controls ---
+    fpsEl.addEventListener('input', ()=>{ fps = Number(fpsEl.value); fpsVal.textContent = fps; });
+    scaleEl.addEventListener('input', ()=>{ scale = Number(scaleEl.value); scaleVal.textContent = scale + 'x';
+      canvas.width = frameWidth * scale; canvas.height = frameHeight * scale; canvas.style.imageRendering = 'pixelated';
+    });
+
+    framesEl.addEventListener('change', ()=>{
+      totalFrames = Number(framesEl.value) || 1; rows = Math.ceil(totalFrames / cols);
+      frameWidth = Math.floor(img.width / cols); frameHeight = Math.floor(img.height / rows);
+      canvas.width = frameWidth * scale; canvas.height = frameHeight * scale;
+    });
+
+    colsEl.addEventListener('change', ()=>{
+      cols = Number(colsEl.value) || 1; rows = Math.ceil(totalFrames / cols);
+      frameWidth = Math.floor(img.width / cols); frameHeight = Math.floor(img.height / rows);
+      canvas.width = frameWidth * scale; canvas.height = frameHeight * scale;
+    });
+
+    toggleBtn.addEventListener('click', ()=>{
+      playing = !playing; toggleBtn.textContent = playing ? 'Pausar' : 'Tocar';
+    });
+
+    flipBtn.addEventListener('click', ()=>{ flipped = !flipped; flipBtn.textContent = flipped ? 'Normal' : 'Virar Horizontal'; });
+
+    // keyboard shortcuts
+    window.addEventListener('keydown', (e)=>{
+      if(e.code === 'Space'){ e.preventDefault(); playing = !playing; toggleBtn.textContent = playing ? 'Pausar' : 'Tocar'; }
+      if(e.key === 'ArrowRight'){ currentFrame = (currentFrame + 1) % totalFrames; }
+      if(e.key === 'ArrowLeft'){ currentFrame = (currentFrame - 1 + totalFrames) % totalFrames; }
+    });
+
+    // allow clicking canvas to advance single frame
+    canvas.addEventListener('click', ()=>{ currentFrame = (currentFrame + 1) % totalFrames; });
+  </script>
+</body>
+</html>
