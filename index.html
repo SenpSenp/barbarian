@@ -3,226 +3,202 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Barbarian Attack — Sprite Animation</title>
+  <title>Vampire Survivor - Base (PixiJS)</title>
   <style>
-    :root{--bg:#111;--panel:#1b1b1b;--accent:#efc07a;color-scheme:dark}
-    html,body{height:100%;margin:0;font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,"Helvetica Neue",Arial}
-    body{display:flex;align-items:center;justify-content:center;background:linear-gradient(180deg,#0b0b0b 0%, #1a1a1a 100%);padding:24px}
-    .card{background:var(--panel);border-radius:12px;padding:18px;box-shadow:0 8px 30px rgba(0,0,0,.6);width:880px;max-width:calc(100% - 48px);color:#ddd}
-    header{display:flex;align-items:center;gap:12px;margin-bottom:12px}
-    h1{font-size:18px;margin:0}
-    p.lead{margin:4px 0 0 0;color:#aaa;font-size:13px}
-    .stage{display:flex;gap:18px}
-    canvas{background:linear-gradient(180deg,#2b241b, #2f2b29);image-rendering:pixelated;border-radius:6px}
-    .controls{display:flex;flex-direction:column;gap:8px;width:320px}
-    .row{display:flex;gap:8px;align-items:center}
-    label{font-size:13px;color:#cfcfcf;min-width:100px}
-    input[type=range]{flex:1}
-    button{background:var(--accent);border:none;padding:8px 12px;border-radius:8px;cursor:pointer}
-    .small{font-size:13px;color:#bbb}
-    footer{margin-top:12px;font-size:12px;color:#999}
-    .muted{color:#8f8f8f}
+    html,body { margin:0; padding:0; overflow:hidden; background:#111; }
+    #game { width:1280px; height:720px; margin:0 auto; display:block; }
   </style>
+  <script src="https://pixijs.download/release/pixi.min.js"></script>
 </head>
 <body>
-  <div class="card">
-    <header>
-      <div>
-        <h1>Barbarian Attack — HTML + JS Sprite Animator</h1>
-        <p class="lead">Arrume seu sprite sheet no mesmo diretório e atualize <code>SPRITE_SHEET</code> no código se necessário.</p>
-      </div>
-    </header>
+<div id="game"></div>
+<script>
+// Single-file PixiJS base with continuous map, obstacles, enemies, scaling
+const app = new PIXI.Application();
+app.init({ width:1280, height:720, background:'#0b0b0b', antialias:true })
+  .then(startGame)
+  .catch(err => console.error('PIXI init failed', err));
 
-    <div class="stage">
-      <canvas id="canvas" width="384" height="192"></canvas>
+function startGame(){
+  document.getElementById('game').appendChild(app.canvas);
+  const stage = app.stage;
+  const VIEW_W = 1280, VIEW_H = 720;
 
-      <div class="controls">
-        <div class="row">
-          <label>Frames por segundo</label>
-          <input id="fps" type="range" min="4" max="30" value="12">
-          <div class="small" id="fpsVal">12</div>
-        </div>
+  const camera = { x:0, y:0 };
+  const obstacles = [];
 
-        <div class="row">
-          <label>Escala</label>
-          <input id="scale" type="range" min="1" max="6" value="3">
-          <div class="small" id="scaleVal">3x</div>
-        </div>
+  // Player
+  const player = new PIXI.Graphics();
+  player.beginFill(0x00ccff); player.drawRect(-12,-12,24,24); player.endFill();
+  player.worldX = 0; player.worldY = 0; player.speed = 260; player.hp = 100;
+  stage.addChild(player);
 
-        <div class="row">
-          <label>Frame count</label>
-          <input id="frames" type="number" min="1" max="64" value="8">
-        </div>
+  // Entities
+  let enemies = [];
+  let bullets = [];
 
-        <div class="row">
-          <label>Colunas</label>
-          <input id="cols" type="number" min="1" max="16" value="4">
-        </div>
+  // Timers / difficulty
+  let spawnTimer = 0, spawnInterval = 900;
+  let shootTimer = 0, shootInterval = 180;
+  let obstacleTimer = 0, obstacleInterval = 7000; // spawn obstacles occasionally
+  let kills = 0, difficultyLevel = 1;
+  let maxEnemies = 12, baseEnemySpeed = 80, baseEnemyHP = 1;
 
-        <div class="row">
-          <label>Loop</label>
-          <button id="toggle">Pausar</button>
-        </div>
+  // Controls
+  const keys = {};
+  window.addEventListener('keydown', e => { keys[e.code] = true; if(['ArrowUp','ArrowDown','ArrowLeft','ArrowRight','Space'].includes(e.code)) e.preventDefault(); });
+  window.addEventListener('keyup', e => { keys[e.code] = false; });
 
-        <div class="row">
-          <label>Direção</label>
-          <button id="flip">Virar Horizontal</button>
-        </div>
+  // HUD
+  const hud = new PIXI.Text('', { fontFamily:'Arial', fontSize:18, fill:0xffffff }); hud.x = 8; hud.y = 8; stage.addChild(hud);
+  const centerText = new PIXI.Text('', { fontFamily:'Arial', fontSize:42, fill:0xffffff }); centerText.anchor.set(0.5); centerText.x = VIEW_W/2; centerText.y = VIEW_H/2; stage.addChild(centerText);
 
-        <div class="row small muted">
-          Aperte <strong>Space</strong> para pausar/resumir — <strong>← →</strong> para mudar frame.
-        </div>
-      </div>
-    </div>
+  function worldToScreen(wx, wy){ return { x: wx - camera.x, y: wy - camera.y }; }
 
-    <footer>
-      <div class="muted">Instruções rápidas: substitua a constante <code>SPRITE_SHEET</code> pelo nome do seu arquivo PNG (ex: <code>barbarian_spritesheet.png</code>) e abra este arquivo no navegador. O desenho usa <code>image-rendering: pixelated</code> para manter a aparência pixel art.</div>
-    </footer>
-  </div>
+  // Obstacles
+  function spawnObstacle(){
+    const angle = Math.random()*Math.PI*2;
+    const dist = 900 + Math.random()*1200;
+    const wx = player.worldX + Math.cos(angle)*dist;
+    const wy = player.worldY + Math.sin(angle)*dist;
 
-  <script>
-    // --- CONFIG ---
-    // Troque esse caminho pelo nome real do seu sprite sheet
-    const SPRITE_SHEET = './barbarian_spritesheet.png.png';
-    const DEFAULT_FRAMES = 8;
-    const DEFAULT_COLS = 4;
-    // ---------------
+    const o = new PIXI.Graphics();
+    o.beginFill(0x228833); // greenish, distinct
+    const w = 60 + Math.random()*90;
+    const h = 60 + Math.random()*90;
+    o.drawRect(-w/2, -h/2, w, h);
+    o.endFill();
+    o.worldX = wx; o.worldY = wy; o.w = w; o.h = h;
+    obstacles.push(o);
+    stage.addChild(o);
+  }
 
-    const canvas = document.getElementById('canvas');
-    const ctx = canvas.getContext('2d');
+  // Spawn initial obstacles
+  for(let i=0;i<6;i++) spawnObstacle();
 
-    const fpsEl = document.getElementById('fps');
-    const fpsVal = document.getElementById('fpsVal');
-    const scaleEl = document.getElementById('scale');
-    const scaleVal = document.getElementById('scaleVal');
-    const framesEl = document.getElementById('frames');
-    const colsEl = document.getElementById('cols');
-    const toggleBtn = document.getElementById('toggle');
-    const flipBtn = document.getElementById('flip');
+  // Enemies
+  function spawnEnemy(){
+    if(enemies.length >= maxEnemies) return;
+    const ang = Math.random()*Math.PI*2;
+    const dist = 600 + Math.random()*300;
+    const ex = player.worldX + Math.cos(ang)*dist;
+    const ey = player.worldY + Math.sin(ang)*dist;
 
-    let img = new Image();
-    img.src = SPRITE_SHEET;
-    img.onload = init;
-    img.onerror = ()=>{
-      ctx.clearRect(0,0,canvas.width,canvas.height);
-      ctx.fillStyle = '#ddd';
-      ctx.font = '14px monospace';
-      ctx.fillText('Erro ao carregar: ' + SPRITE_SHEET, 10, 30);
-      ctx.fillText('Coloque seu sprite sheet no mesmo diretório ou ajuste SPRITE_SHEET.', 10, 50);
-    }
+    const g = new PIXI.Graphics(); g.beginFill(0xff4466); g.drawCircle(0,0,10 + Math.random()*8); g.endFill();
+    g.worldX = ex; g.worldY = ey;
+    g.speed = baseEnemySpeed + Math.random()*30 + (difficultyLevel-1)*14;
+    g.hp = Math.max(1, Math.round(baseEnemyHP + (difficultyLevel-1)*0.6 + Math.random()*0.6));
+    g.maxHp = g.hp;
 
-    let fps = Number(fpsEl.value);
-    let scale = Number(scaleEl.value);
-    let totalFrames = Number(framesEl.value);
-    let cols = Number(colsEl.value);
-    let rows = 1;
-    let currentFrame = 0;
-    let playing = true;
-    let flipped = false;
+    enemies.push(g);
+    stage.addChild(g);
+  }
 
-    let frameWidth = 32, frameHeight = 32; // valores provisórios até carregar imagem
+  // Bullets
+  function createBullet(dirx, diry){
+    const ang = Math.atan2(diry, dirx) + (Math.random()-0.5)*0.12;
+    const nx = Math.cos(ang), ny = Math.sin(ang);
+    const b = new PIXI.Graphics(); b.beginFill(0xffff66); b.drawRect(-4,-4,8,8); b.endFill();
+    b.worldX = player.worldX; b.worldY = player.worldY; b.vx = nx*700; b.vy = ny*700; b.life = 1800; b.damage = 1;
+    bullets.push(b); stage.addChild(b);
+  }
 
-    function init(){
-      // determina colunas / linhas / tamanho do frame com base na imagem
-      cols = Number(colsEl.value) || DEFAULT_COLS;
-      totalFrames = Number(framesEl.value) || DEFAULT_FRAMES;
-      rows = Math.ceil(totalFrames / cols);
-      frameWidth = Math.floor(img.width / cols);
-      frameHeight = Math.floor(img.height / rows);
+  function shootAtNearest(){
+    if(enemies.length===0){ for(let a=0;a<6;a++) createBullet(Math.cos(a/6*Math.PI*2), Math.sin(a/6*Math.PI*2)); return; }
+    let nearest=null, dmin=1e9;
+    for(const e of enemies){ const dx = e.worldX - player.worldX, dy = e.worldY - player.worldY; const d = dx*dx+dy*dy; if(d<dmin){ dmin=d; nearest=e; } }
+    const dx = nearest.worldX - player.worldX, dy = nearest.worldY - player.worldY; const len = Math.hypot(dx,dy)||1; createBullet(dx/len, dy/len);
+  }
 
-      // ajusta canvas para manter pixel art nítido
-      canvas.width = frameWidth * scale;
-      canvas.height = frameHeight * scale;
-      canvas.style.width = (frameWidth * scale) + 'px';
-      canvas.style.height = (frameHeight * scale) + 'px';
-      canvas.style.imageRendering = 'pixelated';
+  function adjustDifficulty(){ difficultyLevel++; spawnInterval = Math.max(200, spawnInterval - 80); baseEnemySpeed += 12; baseEnemyHP += 0.4; maxEnemies += 3; }
 
-      // atualiza display
-      fpsVal.textContent = fps;
-      scaleVal.textContent = scale + 'x';
+  let gameOver = false;
+  function doGameOver(){ gameOver = true; centerText.text = 'GAME OVER'; app.ticker.stop(); }
 
-      lastTime = performance.now();
-      accumulator = 0;
-      requestAnimationFrame(mainLoop);
-    }
+  // Initial enemies
+  for(let i=0;i<6;i++) spawnEnemy();
 
-    // --- animação baseada em tempo ---
-    let lastTime = 0;
-    let accumulator = 0;
+  // Main update
+  function update(dt){
+    if(gameOver) return;
+    const delta = dt/1000;
 
-    function mainLoop(now){
-      requestAnimationFrame(mainLoop);
-      const dt = (now - lastTime) / 1000; // segundos
-      lastTime = now;
-      accumulator += dt;
+    // Player input
+    let vx=0, vy=0;
+    if(keys['KeyW']||keys['ArrowUp']) vy-=1;
+    if(keys['KeyS']||keys['ArrowDown']) vy+=1;
+    if(keys['KeyA']||keys['ArrowLeft']) vx-=1;
+    if(keys['KeyD']||keys['ArrowRight']) vx+=1;
+    const m = Math.hypot(vx,vy)||1;
 
-      const secondsPerFrame = 1 / fps;
-      if(accumulator >= secondsPerFrame){
-        // quantos frames avançar (suaviza se framerate variar)
-        const steps = Math.floor(accumulator / secondsPerFrame);
-        accumulator -= steps * secondsPerFrame;
-        if(playing){
-          currentFrame = (currentFrame + steps) % totalFrames;
+    // Proposed new position
+    let newX = player.worldX + (vx/m)*player.speed*delta;
+    let newY = player.worldY + (vy/m)*player.speed*delta;
+
+    // Obstacle collision (AABB) - simple block
+    let blocked = false;
+    for(const o of obstacles){ if(newX > o.worldX - o.w/2 && newX < o.worldX + o.w/2 && newY > o.worldY - o.h/2 && newY < o.worldY + o.h/2){ blocked = true; break; } }
+    if(!blocked){ player.worldX = newX; player.worldY = newY; }
+
+    // Camera
+    camera.x = player.worldX - VIEW_W/2; camera.y = player.worldY - VIEW_H/2;
+
+    // Spawn timers
+    spawnTimer += dt; if(spawnTimer >= spawnInterval){ spawnTimer = 0; spawnEnemy(); }
+    shootTimer += dt; if(shootTimer >= shootInterval){ shootTimer = 0; shootAtNearest(); }
+    obstacleTimer += dt; if(obstacleTimer >= obstacleInterval){ obstacleTimer = 0; spawnObstacle(); }
+
+    // Update bullets
+    for(let i=bullets.length-1;i>=0;i--){
+      const b = bullets[i]; b.worldX += b.vx*delta; b.worldY += b.vy*delta; b.life -= dt;
+      // collision with obstacles
+      let destroyed = false;
+      for(const o of obstacles){ if(b.worldX > o.worldX - o.w/2 && b.worldX < o.worldX + o.w/2 && b.worldY > o.worldY - o.h/2 && b.worldY < o.worldY + o.h/2){ destroyed = true; break; } }
+      if(destroyed){ stage.removeChild(b); bullets.splice(i,1); continue; }
+
+      // remove if far or expired
+      const dxp = b.worldX - player.worldX, dyp = b.worldY - player.worldY;
+      if(b.life <= 0 || Math.hypot(dxp,dyp) > 3500){ stage.removeChild(b); bullets.splice(i,1); continue; }
+
+      // collision with enemies
+      for(let j=enemies.length-1;j>=0;j--){
+        const e = enemies[j]; const dx = b.worldX - e.worldX, dy = b.worldY - e.worldY; if(dx*dx+dy*dy < ( (e.width||20) )*( (e.width||20) )){
+          e.hp -= b.damage; stage.removeChild(b); bullets.splice(i,1);
+          if(e.hp <= 0){ stage.removeChild(e); enemies.splice(j,1); kills++; if(kills % 15 === 0) adjustDifficulty(); }
+          break;
         }
       }
-
-      draw();
     }
 
-    function draw(){
-      // clear
-      ctx.clearRect(0,0,canvas.width,canvas.height);
+    // Update enemies
+    for(let i=enemies.length-1;i>=0;i--){
+      const e = enemies[i]; const dx = player.worldX - e.worldX, dy = player.worldY - e.worldY; const d = Math.hypot(dx,dy)||1;
+      const mx = (dx/d)*e.speed*delta, my = (dy/d)*e.speed*delta;
+      let ex = e.worldX + mx, ey = e.worldY + my;
+      // obstacle collision for enemies
+      let hitObstacle = false;
+      for(const o of obstacles){ if(ex > o.worldX - o.w/2 && ex < o.worldX + o.w/2 && ey > o.worldY - o.h/2 && ey < o.worldY + o.h/2){ hitObstacle = true; break; } }
+      if(!hitObstacle){ e.worldX = ex; e.worldY = ey; }
 
-      // compute source rect
-      const sx = (currentFrame % cols) * frameWidth;
-      const sy = Math.floor(currentFrame / cols) * frameHeight;
+      // remove if far
+      if(Math.hypot(e.worldX - player.worldX, e.worldY - player.worldY) > 7000){ stage.removeChild(e); enemies.splice(i,1); continue; }
 
-      // draw with optional horizontal flip
-      ctx.save();
-      if(flipped){
-        ctx.translate(canvas.width, 0);
-        ctx.scale(-1, 1);
-        // when flipped, drawing x should be negative width to fit
-        ctx.drawImage(img, sx, sy, frameWidth, frameHeight, 0, 0, frameWidth * scale, frameHeight * scale);
-      } else {
-        ctx.drawImage(img, sx, sy, frameWidth, frameHeight, 0, 0, frameWidth * scale, frameHeight * scale);
-      }
-      ctx.restore();
+      // contact damage
+      const collisionDist = 18 + (e.width||20);
+      if(d < collisionDist){ const damagePerSecond = 8 + (difficultyLevel-1)*3; player.hp -= damagePerSecond*delta; const kb=20; player.worldX -= (dx/d)*kb*delta; player.worldY -= (dy/d)*kb*delta; player.tint = 0xff9999; setTimeout(()=>{ player.tint = 0xFFFFFF; }, 80); if(player.hp <= 0){ player.hp = 0; doGameOver(); } }
     }
 
-    // --- controls ---
-    fpsEl.addEventListener('input', ()=>{ fps = Number(fpsEl.value); fpsVal.textContent = fps; });
-    scaleEl.addEventListener('input', ()=>{ scale = Number(scaleEl.value); scaleVal.textContent = scale + 'x';
-      canvas.width = frameWidth * scale; canvas.height = frameHeight * scale; canvas.style.imageRendering = 'pixelated';
-    });
+    // Update render positions
+    player.x = player.worldX - camera.x; player.y = player.worldY - camera.y;
+    for(const o of obstacles){ const p = worldToScreen(o.worldX, o.worldY); o.x = p.x; o.y = p.y; }
+    for(const e of enemies){ const p = worldToScreen(e.worldX, e.worldY); e.x = p.x; e.y = p.y; }
+    for(const b of bullets){ const p = worldToScreen(b.worldX, b.worldY); b.x = p.x; b.y = p.y; }
 
-    framesEl.addEventListener('change', ()=>{
-      totalFrames = Number(framesEl.value) || 1; rows = Math.ceil(totalFrames / cols);
-      frameWidth = Math.floor(img.width / cols); frameHeight = Math.floor(img.height / rows);
-      canvas.width = frameWidth * scale; canvas.height = frameHeight * scale;
-    });
+    hud.text = `HP: ${Math.round(player.hp)}  Kills: ${kills}  Enemies: ${enemies.length}  Difficulty: ${difficultyLevel}`;
+  }
 
-    colsEl.addEventListener('change', ()=>{
-      cols = Number(colsEl.value) || 1; rows = Math.ceil(totalFrames / cols);
-      frameWidth = Math.floor(img.width / cols); frameHeight = Math.floor(img.height / rows);
-      canvas.width = frameWidth * scale; canvas.height = frameHeight * scale;
-    });
-
-    toggleBtn.addEventListener('click', ()=>{
-      playing = !playing; toggleBtn.textContent = playing ? 'Pausar' : 'Tocar';
-    });
-
-    flipBtn.addEventListener('click', ()=>{ flipped = !flipped; flipBtn.textContent = flipped ? 'Normal' : 'Virar Horizontal'; });
-
-    // keyboard shortcuts
-    window.addEventListener('keydown', (e)=>{
-      if(e.code === 'Space'){ e.preventDefault(); playing = !playing; toggleBtn.textContent = playing ? 'Pausar' : 'Tocar'; }
-      if(e.key === 'ArrowRight'){ currentFrame = (currentFrame + 1) % totalFrames; }
-      if(e.key === 'ArrowLeft'){ currentFrame = (currentFrame - 1 + totalFrames) % totalFrames; }
-    });
-
-    // allow clicking canvas to advance single frame
-    canvas.addEventListener('click', ()=>{ currentFrame = (currentFrame + 1) % totalFrames; });
-  </script>
+  app.ticker.add(() => { update(app.ticker.elapsedMS); });
+}
+</script>
 </body>
 </html>
