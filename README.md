@@ -23,7 +23,7 @@ npx http-server
 3. Acesse o jogo
 o CMD irá retornar alguns endereços locais, basta acessar um deles e jogar!
 ---
-# #Como jogar
+## Como jogar
 - Use WASD ou as setas para mover o personagem.
 - O personagem atira automaticamente nos inimigos mais próximos.
 - Sobreviva o máximo possível enquanto elimina inimigos para aumentar sua pontuação.
